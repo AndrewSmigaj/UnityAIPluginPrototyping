@@ -16,8 +16,9 @@ namespace UnityEditor.AIAssistant
     {
         private const string API_ENDPOINT = "https://api.openai.com/v1/responses";
 
-        // Tool definitions for GPT-5 function calling (const - never changes)
-        private const string TOOLS_JSON = @"[
+        // Fallback tool definitions for GPT-5 function calling (rectangle/circle from Phase 1)
+        // Used when no prefabs are available or selected
+        public const string FALLBACK_TOOLS_JSON = @"[
   {
     ""type"": ""function"",
     ""name"": ""createRectangle"",
@@ -60,8 +61,9 @@ namespace UnityEditor.AIAssistant
         /// <param name="contextPack">Context pack from ContextBuilder</param>
         /// <param name="previousResponseId">Previous response ID for conversation continuity (null for first message)</param>
         /// <param name="toolOutputs">Tool execution results to submit (null if no tools were executed)</param>
+        /// <param name="toolsJson">Dynamic tools JSON from DynamicToolGenerator (null for fallback rectangle/circle)</param>
         /// <returns>ActionPlan with response ID, message, actions, or error</returns>
-        public static ActionPlan SendRequest(AIAssistantSettings settings, string contextPack, string previousResponseId = null, List<ActionResult> toolOutputs = null)
+        public static ActionPlan SendRequest(AIAssistantSettings settings, string contextPack, string previousResponseId = null, List<ActionResult> toolOutputs = null, string toolsJson = null)
         {
             // Validate inputs
             if (settings == null)
@@ -75,7 +77,7 @@ namespace UnityEditor.AIAssistant
             }
 
             // Build request JSON
-            string requestJson = BuildRequestBody(settings, contextPack, previousResponseId, toolOutputs);
+            string requestJson = BuildRequestBody(settings, contextPack, previousResponseId, toolOutputs, toolsJson);
             Debug.Log($"[AI Assistant] Request JSON length: {requestJson.Length} chars");  // DEBUG
             if (toolOutputs != null && toolOutputs.Count > 0)
             {
@@ -91,12 +93,15 @@ namespace UnityEditor.AIAssistant
         /// Builds the JSON request body for OpenAI Responses API.
         /// Uses string template for simplicity and safety.
         /// </summary>
-        private static string BuildRequestBody(AIAssistantSettings settings, string contextPack, string previousResponseId, List<ActionResult> toolOutputs)
+        private static string BuildRequestBody(AIAssistantSettings settings, string contextPack, string previousResponseId, List<ActionResult> toolOutputs, string toolsJson)
         {
             // Get settings values
             string model = settings.Model;
             string verbosity = settings.GetVerbosityString();
             string reasoningEffort = settings.GetReasoningEffortString();
+
+            // Use provided tools or fallback to rectangle/circle
+            string toolsToUse = toolsJson ?? FALLBACK_TOOLS_JSON;
 
             // Build previous_response_id field (omit entirely if null)
             string prevIdField = string.IsNullOrEmpty(previousResponseId)
@@ -167,7 +172,7 @@ namespace UnityEditor.AIAssistant
     ""effort"": ""{reasoningEffort}""
   }},
   ""store"": true{prevIdField},
-  ""tools"": {TOOLS_JSON}
+  ""tools"": {toolsToUse}
 }}";
 
             return requestJson;
@@ -446,6 +451,13 @@ namespace UnityEditor.AIAssistant
                     action.callId = callId;
                     plan.Actions.Add(action);
                 }
+                else if (functionName.StartsWith("create"))
+                {
+                    // Dynamic prefab function (e.g., "createVehiclesRaceCar")
+                    var action = ParsePrefabAction(args, functionName);
+                    action.callId = callId;
+                    plan.Actions.Add(action);
+                }
                 else
                 {
                     Debug.LogWarning($"[AI Assistant] Unknown function: {functionName}");
@@ -500,6 +512,78 @@ namespace UnityEditor.AIAssistant
             catch (Exception ex)
             {
                 throw new Exception($"Invalid circle parameters: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Parses dynamic prefab function arguments into InstantiatePrefabAction.
+        /// Looks up prefab metadata by function name, extracts position and parameters.
+        /// </summary>
+        /// <param name="args">Function arguments from OpenAI</param>
+        /// <param name="functionName">Function name (e.g., "createVehiclesRaceCar")</param>
+        /// <returns>InstantiatePrefabAction ready for execution</returns>
+        private static InstantiatePrefabAction ParsePrefabAction(JSONNode args, string functionName)
+        {
+            try
+            {
+                // Look up prefab metadata by function name
+                PrefabMetadata metadata = PrefabRegistryCache.FindByFunctionName(functionName);
+                if (metadata == null)
+                {
+                    throw new Exception($"No prefab found for function '{functionName}'");
+                }
+
+                // Extract name parameter (always required)
+                string name = args["name"]?.Value ?? "GameObject";
+
+                // Extract position parameters (always required)
+                float x = args["x"].AsFloat;
+                float y = args["y"].AsFloat;
+                float z = args["z"].AsFloat;
+
+                // Extract rotation parameters (optional, default to 0)
+                float rotX = args["rotationX"]?.AsFloat ?? 0f;
+                float rotY = args["rotationY"]?.AsFloat ?? 0f;
+                float rotZ = args["rotationZ"]?.AsFloat ?? 0f;
+
+                // Extract scale parameters (optional, default to 1)
+                float scaleX = args["scaleX"]?.AsFloat ?? 1f;
+                float scaleY = args["scaleY"]?.AsFloat ?? 1f;
+                float scaleZ = args["scaleZ"]?.AsFloat ?? 1f;
+
+                // Extract all other parameters into dictionary
+                Dictionary<string, object> parameters = new Dictionary<string, object>();
+
+                foreach (var kvp in args)
+                {
+                    string key = kvp.Key;
+
+                    // Skip name, position, rotation, and scale parameters (already extracted)
+                    if (key == "name" ||
+                        key == "x" || key == "y" || key == "z" ||
+                        key == "rotationX" || key == "rotationY" || key == "rotationZ" ||
+                        key == "scaleX" || key == "scaleY" || key == "scaleZ")
+                    {
+                        continue;
+                    }
+
+                    // Add to parameters dictionary (keep as JSONNode for type conversion later)
+                    parameters[key] = kvp.Value;
+                }
+
+                return new InstantiatePrefabAction
+                {
+                    prefabPath = metadata.prefabPath,
+                    name = name,
+                    position = new Vector3(x, y, z),
+                    rotation = new Vector3(rotX, rotY, rotZ),
+                    scale = new Vector3(scaleX, scaleY, scaleZ),
+                    parameters = parameters
+                };
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Invalid prefab parameters for {functionName}: {ex.Message}");
             }
         }
     }

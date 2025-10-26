@@ -35,6 +35,13 @@ namespace UnityEditor.AIAssistant
         [Tooltip("If enabled, log actions but don't execute (for testing)")]
         public bool PreviewMode = false;
 
+        [Header("Prefab Scanning")]
+        [Tooltip("Root folder for scanning prefabs (prefabs must be tagged)")]
+        public string PrefabScanFolder = "Assets/AIPrefabs";
+
+        [Tooltip("Auto-scan when assets are imported (future feature, not implemented yet)")]
+        public bool AutoScanOnAssetChange = false;
+
         /// <summary>
         /// OpenAI API key stored in EditorPrefs (per-machine, not committed to git).
         /// </summary>
@@ -94,8 +101,11 @@ namespace UnityEditor.AIAssistant
             {
                 settings = CreateInstance<AIAssistantSettings>();
 
-                // Ensure directory exists
+                // Ensure directory exists (normalize path for Unity AssetDatabase)
                 string directory = System.IO.Path.GetDirectoryName(SETTINGS_PATH);
+                // Convert backslashes to forward slashes for Unity
+                directory = directory.Replace('\\', '/');
+
                 if (!AssetDatabase.IsValidFolder(directory))
                 {
                     string parentFolder = "Assets/Editor/AIAssistant";

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using UnityEngine;
@@ -10,34 +11,37 @@ namespace UnityEditor.AIAssistant
     /// Builds context packs for the OpenAI Responses API.
     /// Assembles project artifacts into a formatted text payload optimized for GPT-5.
     /// Includes tool instructions, project metadata, active scene data, and scripts.
+    /// Generates dynamic tools JSON from prefab registry or falls back to rectangle/circle.
     /// </summary>
     public static class ContextBuilder
     {
         /// <summary>
         /// Builds a complete context pack for the AI from indexed artifacts and user prompt.
+        /// Also generates dynamic tools JSON based on selected prefab categories.
         /// </summary>
         /// <param name="userPrompt">The user's natural language request</param>
         /// <param name="tokenBudget">Maximum estimated tokens (approximate, for awareness only)</param>
+        /// <param name="toolsJson">Out parameter containing JSON array of tools for OpenAI</param>
         /// <returns>Formatted context pack string ready for API</returns>
-        public static string BuildContextPack(string userPrompt, int tokenBudget)
+        public static string BuildContextPack(string userPrompt, int tokenBudget, out string toolsJson)
         {
+            // Generate dynamic tools JSON based on selected prefab categories
+            toolsJson = GenerateToolsJson();
+
             var sb = new StringBuilder();
 
             // Header: Tool instructions for GPT-5
-            sb.AppendLine("You are a Unity scene assistant with the following capabilities:");
-            sb.AppendLine();
-            sb.AppendLine("Tools Available:");
-            sb.AppendLine("- createRectangle: Creates rectangle sprite at world position");
-            sb.AppendLine("- createCircle: Creates circle sprite at world position");
+            sb.AppendLine("You are a Unity scene assistant with powerful prefab creation capabilities.");
             sb.AppendLine();
             sb.AppendLine("Instructions:");
-            sb.AppendLine("- All positions are Unity world coordinates");
+            sb.AppendLine("- All positions are Unity world coordinates (x, y, z)");
             sb.AppendLine("- Colors must be hex format (#RRGGBB)");
+            sb.AppendLine("- You have access to prefabs with customizable parameters");
             sb.AppendLine("- Be helpful and conversational");
             sb.AppendLine("- If uncertain, ask clarifying questions");
             sb.AppendLine();
             sb.AppendLine("---");
-            sb.AppendLine("Context Pack v0.1");
+            sb.AppendLine("Context Pack v2.1");
             sb.AppendLine();
 
             // Section 1: Project Metadata
@@ -125,6 +129,44 @@ namespace UnityEditor.AIAssistant
             // Approximate token count - actual count may vary
             // OpenAI recommends ~4 chars per token as fallback when tiktoken unavailable
             return text.Length / 4;
+        }
+
+        /// <summary>
+        /// Generates tools JSON based on selected prefab categories.
+        /// Falls back to rectangle/circle tools if no prefabs selected or registry missing.
+        /// </summary>
+        /// <returns>JSON array of tool definitions</returns>
+        private static string GenerateToolsJson()
+        {
+            try
+            {
+                // Load selected categories from ProjectSettings
+                List<string> selectedTags = PrefabCategoryPersistence.LoadSelectedTags();
+
+                // If no categories selected, use fallback tools
+                if (selectedTags == null || selectedTags.Count == 0)
+                {
+                    Debug.Log("[AI Assistant] No prefab categories selected - using fallback tools (rectangle/circle)");
+                    return OpenAIClient.FALLBACK_TOOLS_JSON;
+                }
+
+                // Generate dynamic tools (handles fallback internally)
+                string toolsJson = DynamicToolGenerator.GenerateToolsJson(selectedTags);
+
+                // Simple null check for safety
+                if (string.IsNullOrEmpty(toolsJson))
+                {
+                    Debug.LogWarning("[AI Assistant] Tool generation returned null - using fallback");
+                    return OpenAIClient.FALLBACK_TOOLS_JSON;
+                }
+
+                return toolsJson;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[AI Assistant] Failed to generate tools JSON: {ex.Message}. Using fallback.");
+                return OpenAIClient.FALLBACK_TOOLS_JSON;
+            }
         }
     }
 }

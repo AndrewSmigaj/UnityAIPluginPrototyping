@@ -220,15 +220,16 @@ namespace UnityEditor.AIAssistant
                     ProjectIndexer.IndexAll();
                 }
 
-                // Step 2: Build context pack
+                // Step 2: Build context pack with dynamic tools
                 EditorUtility.DisplayProgressBar("AI Assistant", "Building context...", 0.3f);
 
-                string contextPack = ContextBuilder.BuildContextPack(_userPrompt, _settings.TokenBudget);
+                string toolsJson;
+                string contextPack = ContextBuilder.BuildContextPack(_userPrompt, _settings.TokenBudget, out toolsJson);
 
-                // Step 3: Call OpenAI API
+                // Step 3: Call OpenAI API with dynamic tools
                 EditorUtility.DisplayProgressBar("AI Assistant", "Calling OpenAI API...", 0.6f);
 
-                var plan = OpenAIClient.SendRequest(_settings, contextPack, _lastResponseId);
+                var plan = OpenAIClient.SendRequest(_settings, contextPack, _lastResponseId, null, toolsJson);
 
                 // Step 4: Process response
                 if (!plan.Success)
@@ -304,10 +305,10 @@ namespace UnityEditor.AIAssistant
 
             Debug.Log($"[AI Assistant] OnExecuteSelected - About to execute {selectedActions.Count} actions, PreviewMode={_settings.PreviewMode}");
 
-            // Execute actions
+            // Execute actions with DynamicPlanApplier (supports both Phase 1 and Phase 2 actions)
             AppendLog($"[System] Executing {selectedActions.Count} action(s)...", LogType.Log);
 
-            var results = PlanApplier.ApplyPlan(selectedActions, _settings.PreviewMode);
+            var results = DynamicPlanApplier.ApplyPlan(selectedActions, _settings.PreviewMode);
 
             Debug.Log($"[AI Assistant] OnExecuteSelected - ApplyPlan returned {results.Count} results");
 
@@ -349,8 +350,9 @@ namespace UnityEditor.AIAssistant
                 {
                     EditorUtility.DisplayProgressBar("AI Assistant", "Submitting tool results...", 0.5f);
 
-                    string contextPack = ContextBuilder.BuildContextPack("", _settings.TokenBudget);
-                    var plan = OpenAIClient.SendRequest(_settings, contextPack, _lastResponseId, results);
+                    string toolsJson;
+                    string contextPack = ContextBuilder.BuildContextPack("", _settings.TokenBudget, out toolsJson);
+                    var plan = OpenAIClient.SendRequest(_settings, contextPack, _lastResponseId, results, toolsJson);
 
                     if (plan.Success && !string.IsNullOrEmpty(plan.Message))
                     {

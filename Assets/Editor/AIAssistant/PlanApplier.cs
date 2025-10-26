@@ -95,7 +95,7 @@ namespace UnityEditor.AIAssistant
         /// <param name="action">Rectangle creation parameters</param>
         /// <param name="previewMode">If true, log but don't create</param>
         /// <returns>ActionResult with success status and created object</returns>
-        private static ActionResult CreateRectangleGameObject(CreateRectangleAction action, bool previewMode)
+        public static ActionResult CreateRectangleGameObject(CreateRectangleAction action, bool previewMode)
         {
             // Validate dimensions
             if (action.width <= 0 || action.height <= 0)
@@ -174,7 +174,7 @@ namespace UnityEditor.AIAssistant
         /// <param name="action">Circle creation parameters</param>
         /// <param name="previewMode">If true, log but don't create</param>
         /// <returns>ActionResult with success status and created object</returns>
-        private static ActionResult CreateCircleGameObject(CreateCircleAction action, bool previewMode)
+        public static ActionResult CreateCircleGameObject(CreateCircleAction action, bool previewMode)
         {
             // Validate radius
             if (action.radius <= 0)
